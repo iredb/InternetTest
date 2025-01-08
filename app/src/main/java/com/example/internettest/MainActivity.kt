@@ -14,8 +14,11 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.net.SocketException
 import java.net.URL
-import okhttp3.Request
+import okhttp3.*
+import java.io.BufferedInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,33 +31,47 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        val logButton: Button = findViewById(R.id.btnHTTP)
+        val httpButton: Button = findViewById(R.id.btnHTTP)
 
-        logButton.setOnClickListener {
+        httpButton.setOnClickListener {
             fetchCats()
+        }
+
+        val okHttpButton: Button = findViewById(R.id.btnOkHTTP)
+
+        okHttpButton.setOnClickListener {
+            fetchViaOkHTTP()
         }
     }
 
     private fun fetchCats() {
         CoroutineScope(Dispatchers.IO).launch {
+            val flickrUrl =
+                "https://api.flickr.com/services/rest/?method=flickr.photos.search&api_key=ff49fcd4d4a08aa6aafb6ea3de826464&tags=cat&format=json&nojsoncallback=1"
+
             try {
-                // URL для запроса
-                val apiUrl = "https://api.flickr.com/services/rest/?method=flickr.photos.search" +
-                        "&api_key=ff49fcd4d4a08aa6aafb6ea3de826464&tags=cat&format=json&nojsoncallback=1"
+                val url = URL(flickrUrl)
+                val urlConnection = url.openConnection() as HttpURLConnection
 
-                // Выполняем запрос
-                val response = URL(apiUrl).readText()
-
-                // Логируем ответ уровня DEBUG с тегом "Flickr cats"
-                Log.d("Flickr cats", response)
+                try {
+                    val inputStream = BufferedInputStream(urlConnection.inputStream)
+                    val response = readStream(inputStream)
+                    Log.d("Flickr cats", "Response: $response")
+                } finally {
+                    urlConnection.disconnect()
+                }
             } catch (e: SocketException) {
                 Log.e("Flickr cats", "SocketException: Проверьте разрешение на доступ к интернету в AndroidManifest.xml")
             } catch (e: NetworkOnMainThreadException) {
-                Log.e("Flickr cats", "NetworkOnMainThreadException: Убедитесь, что сетевой запрос выполняется не в основном потоке")
+                Log.e("Flickr cats", "NetworkOnMainThreadException: Убедитесь, что сетевое взаимодействие производится в другом потоке")
             } catch (e: Exception) {
                 Log.e("Flickr cats", "Exception: ${e.localizedMessage}")
             }
         }
+    }
+
+    private fun readStream(inputStream: InputStream): String {
+        return inputStream.bufferedReader().use { it.readText() }
     }
 
     private fun fetchCatsViaOkHTTP() {
@@ -80,5 +97,31 @@ class MainActivity : AppCompatActivity() {
                 Log.e("Flickr OkCats", "Exception: ${e.localizedMessage}")
             }
         }
+    }
+
+    private val client = OkHttpClient()
+
+    private fun fetchViaOkHTTP() {
+        val url = "https://api.flickr.com/services/rest/?method=flickr.photos.search&api_key=ff49fcd4d4a08aa6aafb6ea3de826464&tags=cat&format=json&nojsoncallback=1"
+
+        val request = Request.Builder()
+            .url(url)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("Flickr OkCats", "Request failed: ${e.message}", e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    response.body?.string()?.let { responseBody ->
+                        Log.i("Flickr OkCats", "Response: $responseBody")
+                    } ?: Log.e("Flickr OkCats", "Response body is null")
+                } else {
+                    Log.e("Flickr OkCats", "Request failed with code: ${response.code}")
+                }
+            }
+        })
     }
 }
